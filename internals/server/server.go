@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/sviatilnik/go-caching-proxy/internals/config"
+	"github.com/sviatilnik/go-caching-proxy/internals/middleware"
+	"github.com/sviatilnik/go-caching-proxy/internals/proxy"
 )
 
 type Server struct {
@@ -27,15 +29,18 @@ func (server *Server) Start() {
 	defer cancel()
 
 	mux := http.NewServeMux()
+
 	httpServer := &http.Server{
 		Addr:    server.conf.Port,
-		Handler: mux,
+		Handler: middleware.Log(mux),
 	}
 
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-		w.Write([]byte("Hello, World!"))
-	})
+	prx, err := proxy.NewProxy(server.conf.Patter, server.conf.Target)
+	if err != nil {
+		slog.Error(err.Error())
+	}
+
+	mux.HandleFunc("/", prx.ServeHTTP)
 
 	go func() {
 		slog.Info("Server starting...", "addr", httpServer.Addr)

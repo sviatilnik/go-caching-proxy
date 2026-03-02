@@ -7,6 +7,7 @@ import (
 type Config struct {
 	Port   string
 	Target string
+	Patter string
 }
 
 func NewConfig() *Config {
@@ -20,4 +21,5 @@ func NewConfig() *Config {
 func (c *Config) init() {
 	c.Target = os.Getenv("TARGET")
 	c.Port = os.Getenv("PORT")
+	c.Patter = os.Getenv("PATTERN")
 }
