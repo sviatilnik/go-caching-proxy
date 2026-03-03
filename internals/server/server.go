@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sviatilnik/go-caching-proxy/internals/cache"
 	"github.com/sviatilnik/go-caching-proxy/internals/config"
 	"github.com/sviatilnik/go-caching-proxy/internals/middleware"
 	"github.com/sviatilnik/go-caching-proxy/internals/proxy"
@@ -35,7 +36,7 @@ func (server *Server) Start() {
 		Handler: middleware.Log(mux),
 	}
 
-	prx, err := proxy.NewProxy(server.conf.Patter, server.conf.Target)
+	prx, err := proxy.NewProxy(server.conf.Patter, server.conf.Target, cache.NewCache(cache.NewInMemoryStore()))
 	if err != nil {
 		slog.Error(err.Error())
 	}
