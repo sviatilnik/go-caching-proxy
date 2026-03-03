@@ -70,10 +70,15 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					w.Write([]byte(err.Error()))
 					return
 				}
+				resp.Headers = append(resp.Headers, cache.Header{
+					Name:  "X-Cache",
+					Value: "HIT",
+				})
 				slog.Info("Get request from cache")
 			}
 
 			if resp == nil {
+				// TODO здесь может быть проблема стада
 				client := &http.Client{
 					Timeout: 10 * time.Second,
 				}
@@ -127,6 +132,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 
+				resp.Headers = append(resp.Headers, cache.Header{
+					Name:  "X-Cache",
+					Value: "MISS",
+				})
 			}
 
 			for _, h := range resp.Headers {
