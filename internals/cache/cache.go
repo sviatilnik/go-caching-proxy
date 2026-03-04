@@ -30,6 +30,7 @@ func (c *Cache) Has(r *http.Request) bool {
 
 func (c *Cache) Save(r *http.Request, resp *Response) error {
 	key := c.createKey(r)
+	// TODO вынести TTL
 	return c.store.Save(r.Context(), key, resp, 3600)
 }
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sviatilnik/go-caching-proxy/internals/cache"
+	"golang.org/x/sync/singleflight"
 )
 
 type Proxy struct {
@@ -51,104 +52,101 @@ func NewProxy(pattern string, target string, cache *cache.Cache) (*Proxy, error)
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
-	if r.Method == http.MethodGet {
-		if match := p.re.MatchString(r.URL.Path); match {
+	if r.Method != http.MethodGet || p.cache == nil {
+		slog.Info("Proxy request")
+		p.proxy.ServeHTTP(w, r)
+		return
+	}
 
-			// cache disabled
-			if p.cache == nil {
-				p.proxy.ServeHTTP(w, r)
+	if match := p.re.MatchString(r.URL.Path); match {
+
+		var err error
+		var resp *cache.Response
+
+		if p.cache.Has(r) {
+			resp, err = p.cache.Get(r)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(err.Error()))
 				return
 			}
 
-			var err error
-			var resp *cache.Response
+			if resp != nil {
+				slog.Info("Get response from cache")
 
-			if p.cache.Has(r) {
-				resp, err = p.cache.Get(r)
-				if err != nil {
-					w.WriteHeader(http.StatusInternalServerError)
-					w.Write([]byte(err.Error()))
-					return
-				}
-				resp.Headers = append(resp.Headers, cache.Header{
-					Name:  "X-Cache",
-					Value: "HIT",
-				})
-				slog.Info("Get request from cache")
+				resp.AddCacheHitHeader()
+			}
+		}
+
+		if resp == nil {
+			var g singleflight.Group
+			v, err, _ := g.Do("real-request", func() (interface{}, error) {
+				return p.sendRequest(r)
+			})
+
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(err.Error()))
+				return
 			}
 
-			if resp == nil {
-				// TODO здесь может быть проблема стада
-				client := &http.Client{
-					Timeout: 10 * time.Second,
-				}
-				path := strings.TrimRight(p.target.String(), "/") + p.re.ReplaceAllString(r.URL.Path, "") + r.URL.RawQuery
+			resp = v.(*cache.Response)
 
-				clientReq, err := http.NewRequest(r.Method, path, r.Body)
-				if err != nil {
-					w.WriteHeader(http.StatusInternalServerError)
-					w.Write([]byte(err.Error()))
-					return
-				}
-				clientReq.Header = r.Header
+			resp.AddCacheMissHeader()
+		}
 
-				httpResponse, err := client.Do(clientReq)
-				if err != nil {
-					w.WriteHeader(http.StatusInternalServerError)
-					w.Write([]byte(err.Error()))
-					return
-				}
-				defer httpResponse.Body.Close()
+		resp.CopyToWriter(w)
 
-				body, err := io.ReadAll(httpResponse.Body)
-				if err != nil {
-					w.WriteHeader(http.StatusInternalServerError)
-					w.Write([]byte(err.Error()))
-					return
-				}
+		return
+	}
 
-				var headers []cache.Header
-				for key, head := range httpResponse.Header {
-					for _, v := range head {
-						headers = append(headers, cache.Header{
-							Name:  key,
-							Value: v,
-						})
-					}
-				}
+}
 
-				resp = &cache.Response{
-					Status:  httpResponse.StatusCode,
-					Body:    string(body),
-					Headers: headers,
-				}
+func (p *Proxy) sendRequest(r *http.Request) (*cache.Response, error) {
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+	path := strings.TrimRight(p.target.String(), "/") + p.re.ReplaceAllString(r.URL.Path, "") + r.URL.RawQuery
 
-				// Статус код 200 семейства, поэтому пишем ответ в кеш
-				if httpResponse.StatusCode < 300 {
-					if err := p.cache.Save(r, resp); err != nil {
-						w.WriteHeader(http.StatusInternalServerError)
-						w.Write([]byte(err.Error()))
-						return
-					}
-				}
+	clientReq, err := http.NewRequest(r.Method, path, r.Body)
+	if err != nil {
+		return nil, err
+	}
+	clientReq.Header = r.Header
 
-				resp.Headers = append(resp.Headers, cache.Header{
-					Name:  "X-Cache",
-					Value: "MISS",
-				})
-			}
+	httpResponse, err := client.Do(clientReq)
+	if err != nil {
+		return nil, err
+	}
+	defer httpResponse.Body.Close()
 
-			for _, h := range resp.Headers {
-				w.Header().Add(h.Name, h.Value)
-			}
+	body, err := io.ReadAll(httpResponse.Body)
+	if err != nil {
+		return nil, err
+	}
 
-			w.WriteHeader(resp.Status)
-			w.Write([]byte(resp.Body))
-
-			return
+	var headers []cache.Header
+	for key, head := range httpResponse.Header {
+		for _, v := range head {
+			headers = append(headers, cache.Header{
+				Name:  key,
+				Value: v,
+			})
 		}
 	}
 
-	slog.Info("Proxy request")
-	p.proxy.ServeHTTP(w, r)
+	resp := &cache.Response{
+		Status:  httpResponse.StatusCode,
+		Body:    string(body),
+		Headers: headers,
+	}
+
+	// Статус код 200 семейства, поэтому пишем ответ в кеш
+	if httpResponse.StatusCode < 300 {
+		if err := p.cache.Save(r, resp); err != nil {
+			return nil, err
+		}
+	}
+
+	return resp, nil
 }
