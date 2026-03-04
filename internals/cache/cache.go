@@ -35,10 +35,11 @@ func (c *Cache) Save(r *http.Request, resp *Response) error {
 }
 
 func (c *Cache) createKey(r *http.Request) string {
+	c.hasher.Reset()
+
 	c.hasher.Write([]byte(r.Host + r.URL.Path + r.URL.RawQuery))
 
 	h := hex.EncodeToString(c.hasher.Sum(nil))
-	defer c.hasher.Reset()
 
 	return h
 }

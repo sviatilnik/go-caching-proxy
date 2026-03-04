@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"log/slog"
 
 	"github.com/joho/godotenv"
@@ -13,6 +14,15 @@ func main() {
 		slog.Error("No .env file found, relying on OS environment variables")
 	}
 
-	server := server.NewServer(config.NewConfig())
-	server.Start()
+	conf, err := config.NewConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	server := server.NewServer(conf)
+
+	err = server.Start()
+	if err != nil {
+		log.Fatal(err)
+	}
 }

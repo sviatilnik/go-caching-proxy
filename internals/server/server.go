@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -25,20 +26,21 @@ func NewServer(c *config.Config) *Server {
 	}
 }
 
-func (server *Server) Start() {
+func (server *Server) Start() error {
+	prx, err := proxy.NewProxy(server.conf.Pattern, server.conf.Target, cache.NewCache(cache.NewInMemoryStore()))
+	if err != nil {
+		slog.Error(err.Error())
+		return err
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	mux := http.NewServeMux()
 
 	httpServer := &http.Server{
-		Addr:    server.conf.Port,
+		Addr:    server.conf.Addr,
 		Handler: middleware.Log(mux),
-	}
-
-	prx, err := proxy.NewProxy(server.conf.Patter, server.conf.Target, cache.NewCache(cache.NewInMemoryStore()))
-	if err != nil {
-		slog.Error(err.Error())
 	}
 
 	mux.HandleFunc("/", prx.ServeHTTP)
@@ -46,19 +48,22 @@ func (server *Server) Start() {
 	go func() {
 		slog.Info("Server starting...", "addr", httpServer.Addr)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error(err.Error())
+			log.Fatal(err)
 		}
 	}()
 
 	<-ctx.Done()
 
-	slog.Info("Shuting down server ...")
+	slog.Info("Shutting down server ...")
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		slog.Error("Failed to shutdown server", "err", err.Error())
+		return err
 	}
 
 	slog.Info("Server stopped...")
+
+	return nil
 }

@@ -1,25 +1,60 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"os"
+	"regexp"
+	"strings"
 )
 
+var ErrEmptyTarget = errors.New("Empty target in config")
+var ErrEmptyPattern = errors.New("Empty pattern in config")
+
 type Config struct {
-	Port   string
-	Target string
-	Patter string
+	Addr    string
+	Target  string
+	Pattern string
 }
 
-func NewConfig() *Config {
+func NewConfig() (*Config, error) {
 	conf := &Config{}
 
-	conf.init()
+	err := conf.init()
+	if err != nil {
+		return nil, err
+	}
 
-	return conf
+	return conf, nil
 }
 
-func (c *Config) init() {
-	c.Target = os.Getenv("TARGET")
-	c.Port = os.Getenv("PORT")
-	c.Patter = os.Getenv("PATTERN")
+func (c *Config) init() error {
+	c.Addr = c.getEnvOrDefault("ADDRESS", "localhost:8080")
+
+	c.Target = c.getEnvOrDefault("TARGET", "")
+	if c.Target == "" {
+		return ErrEmptyTarget
+	}
+
+	c.Pattern = c.getEnvOrDefault("PATTERN", "")
+	if c.Pattern == "" {
+		return ErrEmptyPattern
+	}
+
+	_, err := regexp.Compile(c.Pattern)
+	if err != nil {
+		return fmt.Errorf("invalid proxy pattern in config: %w", err)
+	}
+
+	return nil
+}
+
+func (c *Config) getEnvOrDefault(envKey string, def string) string {
+	envVal := strings.TrimSpace(os.Getenv(envKey))
+
+	if envVal == "" {
+		return def
+	}
+
+	return envVal
 }

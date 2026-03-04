@@ -31,8 +31,6 @@ func (s *InMemoryStore) Get(ctx context.Context, key string) *Response {
 		if v.until > time.Now().Unix() {
 			return &v.Response
 		}
-
-		s.Remove(ctx, key)
 	}
 
 	return nil
@@ -45,8 +43,15 @@ func (s *InMemoryStore) Save(ctx context.Context, key string, value *Response, t
 	// Сохраняем копию значения: если где-то дальше в коде изменят исходный Response,
 	// это не затронет данные в нашем хранилище.
 
+	valueCopy := *value
+
+	headers := make([]Header, len(value.Headers))
+	copy(headers, value.Headers)
+
+	valueCopy.Headers = headers
+
 	s.store[key] = cachedResponse{
-		*value,
+		valueCopy,
 		time.Now().Unix() + int64(ttl),
 	}
 	return nil

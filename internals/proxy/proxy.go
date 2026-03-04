@@ -15,11 +15,12 @@ import (
 )
 
 type Proxy struct {
-	pattern string
-	re      *regexp.Regexp
-	proxy   *httputil.ReverseProxy
-	cache   *cache.Cache
-	target  *url.URL
+	pattern      string
+	re           *regexp.Regexp
+	proxy        *httputil.ReverseProxy
+	cache        *cache.Cache
+	target       *url.URL
+	singleflight singleflight.Group
 }
 
 func NewProxy(pattern string, target string, cache *cache.Cache) (*Proxy, error) {
@@ -79,8 +80,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if resp == nil {
-			var g singleflight.Group
-			v, err, _ := g.Do("real-request", func() (interface{}, error) {
+			path := p.getProxyPath(r)
+			v, err, _ := p.singleflight.Do(path, func() (interface{}, error) {
 				return p.sendRequest(r)
 			})
 
@@ -103,10 +104,11 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Proxy) sendRequest(r *http.Request) (*cache.Response, error) {
+	// TODO Вынести Timeout
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}
-	path := strings.TrimRight(p.target.String(), "/") + p.re.ReplaceAllString(r.URL.Path, "") + r.URL.RawQuery
+	path := p.getProxyPath(r)
 
 	clientReq, err := http.NewRequest(r.Method, path, r.Body)
 	if err != nil {
@@ -149,4 +151,8 @@ func (p *Proxy) sendRequest(r *http.Request) (*cache.Response, error) {
 	}
 
 	return resp, nil
+}
+
+func (p *Proxy) getProxyPath(r *http.Request) string {
+	return strings.TrimRight(p.target.String(), "/") + p.re.ReplaceAllString(r.URL.Path, "") + r.URL.RawQuery
 }
