@@ -3,16 +3,22 @@ package cache
 import (
 	"context"
 	"sync"
+	"time"
 )
 
+type cachedResponse struct {
+	Response
+	until int64
+}
+
 type InMemoryStore struct {
-	store map[string]Response
+	store map[string]cachedResponse
 	mu    sync.RWMutex
 }
 
 func NewInMemoryStore() *InMemoryStore {
 	return &InMemoryStore{
-		store: make(map[string]Response),
+		store: make(map[string]cachedResponse),
 		mu:    sync.RWMutex{},
 	}
 }
@@ -22,7 +28,11 @@ func (s *InMemoryStore) Get(ctx context.Context, key string) *Response {
 	defer s.mu.RUnlock()
 
 	if v, ok := s.store[key]; ok {
-		return &v
+		if v.until > time.Now().Unix() {
+			return &v.Response
+		}
+
+		s.Remove(ctx, key)
 	}
 
 	return nil
@@ -35,7 +45,10 @@ func (s *InMemoryStore) Save(ctx context.Context, key string, value *Response, t
 	// Сохраняем копию значения: если где-то дальше в коде изменят исходный Response,
 	// это не затронет данные в нашем хранилище.
 
-	s.store[key] = *value
+	s.store[key] = cachedResponse{
+		*value,
+		time.Now().Unix() + int64(ttl),
+	}
 	return nil
 }
 
@@ -43,8 +56,11 @@ func (s *InMemoryStore) Has(ctx context.Context, key string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	_, ok := s.store[key]
-	return ok
+	if v, ok := s.store[key]; ok {
+		return v.until > time.Now().Unix()
+	}
+
+	return false
 }
 
 func (s *InMemoryStore) Remove(ctx context.Context, key string) error {
