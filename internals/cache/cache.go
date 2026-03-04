@@ -10,12 +10,14 @@ import (
 type Cache struct {
 	store  Store
 	hasher hash.Hash
+	ttl    int
 }
 
-func NewCache(store Store) *Cache {
+func NewCache(store Store, TTL int) *Cache {
 	return &Cache{
 		store:  store,
 		hasher: md5.New(),
+		ttl:    TTL,
 	}
 }
 
@@ -30,8 +32,7 @@ func (c *Cache) Has(r *http.Request) bool {
 
 func (c *Cache) Save(r *http.Request, resp *Response) error {
 	key := c.createKey(r)
-	// TODO вынести TTL
-	return c.store.Save(r.Context(), key, resp, 3600)
+	return c.store.Save(r.Context(), key, resp, c.ttl)
 }
 
 func (c *Cache) createKey(r *http.Request) string {

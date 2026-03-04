@@ -12,6 +12,7 @@ import (
 
 	"github.com/sviatilnik/go-caching-proxy/internals/cache"
 	"golang.org/x/sync/singleflight"
+	"golang.org/x/time/rate"
 )
 
 type Proxy struct {
@@ -21,6 +22,7 @@ type Proxy struct {
 	cache        *cache.Cache
 	target       *url.URL
 	singleflight singleflight.Group
+	limit        *rate.Limiter
 }
 
 func NewProxy(pattern string, target string, cache *cache.Cache) (*Proxy, error) {
@@ -42,12 +44,15 @@ func NewProxy(pattern string, target string, cache *cache.Cache) (*Proxy, error)
 		return nil, err
 	}
 
+	// TODO proxy rate limit
+
 	return &Proxy{
 		pattern: pattern,
 		proxy:   prx,
 		re:      re,
 		cache:   cache,
 		target:  parseURL,
+		limit:   rate.NewLimiter(rate.Limit(100), 100),
 	}, nil
 }
 
@@ -80,6 +85,12 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if resp == nil {
+
+			if err := p.limit.Wait(r.Context()); err != nil {
+				http.Error(w, err.Error(), http.StatusServiceUnavailable)
+				return
+			}
+
 			path := p.getProxyPath(r)
 			v, err, _ := p.singleflight.Do(path, func() (interface{}, error) {
 				return p.sendRequest(r)

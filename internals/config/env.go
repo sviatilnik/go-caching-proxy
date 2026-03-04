@@ -5,16 +5,19 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
 var ErrEmptyTarget = errors.New("Empty target in config")
 var ErrEmptyPattern = errors.New("Empty pattern in config")
+var ErrInvalidCacheTTL = errors.New("Invalid cache TTL in config")
 
 type Config struct {
 	Addr    string
 	Target  string
 	Pattern string
+	TTL     int
 }
 
 func NewConfig() (*Config, error) {
@@ -45,6 +48,15 @@ func (c *Config) init() error {
 	if err != nil {
 		return fmt.Errorf("invalid proxy pattern in config: %w", err)
 	}
+
+	ttl := c.getEnvOrDefault("CACHE_TTL", "3600")
+
+	convertedTTL, err := strconv.Atoi(ttl)
+	if err != nil {
+		return ErrInvalidCacheTTL
+	}
+
+	c.TTL = convertedTTL
 
 	return nil
 }

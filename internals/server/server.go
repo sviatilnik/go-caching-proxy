@@ -27,7 +27,7 @@ func NewServer(c *config.Config) *Server {
 }
 
 func (server *Server) Start() error {
-	prx, err := proxy.NewProxy(server.conf.Pattern, server.conf.Target, cache.NewCache(cache.NewInMemoryStore()))
+	prx, err := proxy.NewProxy(server.conf.Pattern, server.conf.Target, cache.NewCache(cache.NewInMemoryStore(), server.conf.TTL))
 	if err != nil {
 		slog.Error(err.Error())
 		return err
